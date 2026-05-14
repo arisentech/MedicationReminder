@@ -1,99 +1,39 @@
-import axios from 'axios';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+const API_URL = 'https://arisen.in/medicationreminderapp/backend/api.php'; 
 
-const API_BASE_URL = 'https://your-backend-url.com/api'; // Replace with your actual backend URL
-
-const api = axios.create({
-  baseURL: API_BASE_URL,
-  timeout: 10000,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
-
-// Add auth token to requests
-api.interceptors.request.use(async (config) => {
-  const token = await AsyncStorage.getItem('authToken');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
-
-export const saveMedication = async (medication) => {
+const postData = async (action, data) => {
   try {
-    const response = await api.post('/medications', medication);
-    return response.data;
-  } catch (error) {
-    console.error('Error saving medication:', error);
-    throw error;
-  }
-};
-
-export const getMedications = async () => {
-  try {
-    const response = await api.get('/medications');
-    return response.data;
-  } catch (error) {
-    console.error('Error fetching medications:', error);
-    throw error;
-  }
-};
-
-export const updateMedication = async (id, medication) => {
-  try {
-    const response = await api.put(`/medications/${id}`, medication);
-    return response.data;
-  } catch (error) {
-    console.error('Error updating medication:', error);
-    throw error;
-  }
-};
-
-export const deleteMedication = async (id) => {
-  try {
-    const response = await api.delete(`/medications/${id}`);
-    return response.data;
-  } catch (error) {
-    console.error('Error deleting medication:', error);
-    throw error;
-  }
-};
-
-export const markMedicationTaken = async (medicationId, timestamp) => {
-  try {
-    const response = await api.post('/medications/taken', {
-      medicationId,
-      timestamp,
+    const response = await fetch(`${API_URL}?action=${action}`, {
+      method: 'POST',
+      headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
     });
-    return response.data;
-  } catch (error) {
-    console.error('Error marking medication as taken:', error);
-    throw error;
-  }
+    const text = await response.text();
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      console.error(`PHP Error on ${action}:`, text);
+      return { success: false, error: "Server error." };
+    }
+  } catch (error) { throw error; }
 };
 
-export const sendCaregiverAlert = async (medicationId, caregiverId) => {
+const getData = async (action, params = '') => {
   try {
-    const response = await api.post('/alerts/caregiver', {
-      medicationId,
-      caregiverId,
-    });
-    return response.data;
-  } catch (error) {
-    console.error('Error sending caregiver alert:', error);
-    throw error;
-  }
+    const response = await fetch(`${API_URL}?action=${action}${params}`);
+    const text = await response.text();
+    try {
+      return JSON.parse(text);
+    } catch (e) { return []; }
+  } catch (error) { throw error; }
 };
 
-export const getMedicationHistory = async (startDate, endDate) => {
-  try {
-    const response = await api.get('/medications/history', {
-      params: { startDate, endDate }
-    });
-    return response.data;
-  } catch (error) {
-    console.error('Error fetching medication history:', error);
-    throw error;
-  }
-};
+export const registerUser = async (name, email) => await postData('register', { name, email });
+export const loginUser = async (email) => await postData('login', { email });
+export const saveMedication = async (med, userId) => await postData('save_medication', { ...med, user_id: userId });
+export const deleteMedication = async (medId) => await postData('delete_medication', { id: medId });
+export const getTodaysMedications = async (userId) => await getData('get_medications', `&user_id=${userId}`);
+export const getMedicationHistory = async (userId, date) => await getData('get_history', `&user_id=${userId}&date=${date}`);
+export const getCaregivers = async (userId) => await getData('get_caregivers', `&user_id=${userId}`);
+export const saveCaregiver = async (cg, userId) => await postData('save_caregiver', { ...cg, user_id: userId });
+export const deleteCaregiver = async (cgId) => await postData('delete_caregiver', { id: cgId });
+export const logMedicationHistory = async (medId, status) => await postData('log_medication', { med_id: medId, status });

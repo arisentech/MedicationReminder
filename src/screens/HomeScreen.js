@@ -1,185 +1,168 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import LargeButton from '../components/LargeButton';
+import { getTodaysMedications, deleteMedication } from '../services/api_real';
 
 export default function HomeScreen({ navigation }) {
-  const [nextMedication, setNextMedication] = useState(null);
   const [todaysMedications, setTodaysMedications] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [userName, setUserName] = useState('User');
+  
+  const [selectedMed, setSelectedMed] = useState(null);
+  const [modalVisible, setModalVisible] = useState(false);
 
   useEffect(() => {
-    loadTodaysMedications();
-  }, []);
+    const unsubscribe = navigation.addListener('focus', () => { loadData(); });
+    return unsubscribe;
+  }, [navigation]);
 
-  const loadTodaysMedications = async () => {
-    // Fetch today's medications from API
-    // This is placeholder data
-    setTodaysMedications([
-      { id: 1, name: 'Aspirin', time: '08:00 AM', taken: false },
-      { id: 2, name: 'Vitamin D', time: '12:00 PM', taken: false },
-      { id: 3, name: 'Blood Pressure Med', time: '06:00 PM', taken: false },
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const userIdStr = await AsyncStorage.getItem('userId');
+      const name = await AsyncStorage.getItem('userName');
+      if (!userIdStr) return navigation.replace('Auth');
+      if (name) setUserName(name.split(' ')[0]); 
+
+      const response = await getTodaysMedications(parseInt(userIdStr, 10));
+      setTodaysMedications(Array.isArray(response) ? response : []);
+    } catch (error) { console.log("Load error"); } 
+    finally { setLoading(false); }
+  };
+
+  const handleDelete = (id) => {
+    Alert.alert('Delete', `Remove this medication?`, [
+      { text: 'Cancel', style: 'cancel' },
+      { 
+        text: 'Delete', style: 'destructive', 
+        onPress: async () => {
+          const result = await deleteMedication(id);
+          if(result && result.success) { loadData(); } 
+          else { Alert.alert("Error", "Could not delete medication."); }
+        } 
+      }
     ]);
-    setNextMedication({ name: 'Aspirin', time: '08:00 AM' });
+  };
+
+  const formatTime = (timeData) => {
+    try {
+      const parsed = typeof timeData === 'string' ? JSON.parse(timeData) : timeData;
+      return Array.isArray(parsed) ? parsed.join(', ') : 'Scheduled';
+    } catch (e) { return 'Scheduled'; }
+  };
+
+  const getIcon = (dosage) => {
+    const d = dosage ? dosage.toLowerCase() : '';
+    if (d.includes('ml') || d.includes('syrup')) return 'flask';
+    if (d.includes('puff') || d.includes('inhaler')) return 'medical';
+    if (d.includes('drop')) return 'water';
+    return 'bandage';
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      <ScrollView contentContainerStyle={{ paddingBottom: 20 }}>
         <View style={styles.header}>
-          <Text style={styles.greeting}>Good Morning!</Text>
-          <Text style={styles.date}>{new Date().toLocaleDateString('en-US', { 
-            weekday: 'long', 
-            year: 'numeric', 
-            month: 'long', 
-            day: 'numeric' 
-          })}</Text>
-        </View>
-
-        <View style={styles.nextMedCard}>
-          <Ionicons name="alarm-outline" size={40} color="#4A90E2" />
-          <View style={styles.nextMedInfo}>
-            <Text style={styles.nextMedLabel}>Next Medication</Text>
-            {nextMedication ? (
-              <>
-                <Text style={styles.nextMedName}>{nextMedication.name}</Text>
-                <Text style={styles.nextMedTime}>{nextMedication.time}</Text>
-              </>
-            ) : (
-              <Text style={styles.noMeds}>No medications scheduled</Text>
-            )}
-          </View>
+          <Text style={styles.greeting}>Good Morning, {userName}!</Text>
+          <Text style={styles.date}>{new Date().toLocaleDateString()}</Text>
         </View>
 
         <View style={styles.todaySection}>
-          <Text style={styles.sectionTitle}>Today's Medications</Text>
-          {todaysMedications.map((med) => (
-            <TouchableOpacity key={med.id} style={styles.medItem}>
-              <View style={styles.medItemLeft}>
-                <Ionicons 
-                  name={med.taken ? "checkmark-circle" : "ellipse-outline"} 
-                  size={30} 
-                  color={med.taken ? "#4CAF50" : "#999"} 
-                />
-                <View style={styles.medItemInfo}>
-                  <Text style={styles.medItemName}>{med.name}</Text>
-                  <Text style={styles.medItemTime}>{med.time}</Text>
+          <Text style={styles.sectionTitle}>Your Medications</Text>
+          
+          {loading ? (
+             <ActivityIndicator size="large" color="#4A90E2" style={{marginTop: 20}} />
+          ) : todaysMedications.length === 0 ? (
+             <Text style={styles.noDataText}>No medications added.</Text>
+          ) : (
+            todaysMedications.map((med) => (
+              <TouchableOpacity key={med.id} style={styles.medItem} onPress={() => { setSelectedMed(med); setModalVisible(true); }}>
+                <View style={styles.medItemLeft}>
+                  <View style={styles.iconCircle}>
+                    <Ionicons name={getIcon(med.dosage)} size={35} color="#fff" />
+                  </View>
+                  <View style={styles.medItemInfo}>
+                    <Text style={styles.medItemName}>{med.name}</Text>
+                    <Text style={styles.medItemSchedule}>{formatTime(med.times)}</Text>
+                  </View>
                 </View>
-              </View>
-              <Ionicons name="chevron-forward" size={24} color="#999" />
-            </TouchableOpacity>
-          ))}
+                
+                <TouchableOpacity onPress={() => handleDelete(med.id)} style={{ padding: 10 }}>
+                  <Ionicons name="trash" size={35} color="#ff4444" />
+                </TouchableOpacity>
+              </TouchableOpacity>
+            ))
+          )}
         </View>
 
         <View style={styles.quickActions}>
-          <LargeButton 
-            title="Add Medication" 
-            icon="add-circle-outline"
-            onPress={() => navigation.navigate('Medications', { screen: 'AddMedication' })}
-          />
-          <LargeButton 
-            title="View History" 
-            icon="time-outline"
-            onPress={() => navigation.navigate('History')}
-          />
+          <LargeButton title="Add New Medication" icon="add-circle" onPress={() => navigation.navigate('AddMedication')} />
+          <View style={{height: 15}} />
+          <LargeButton title="View History" icon="time" onPress={() => navigation.navigate('History')} />
         </View>
       </ScrollView>
+
+      {/* DETAILS MODAL */}
+      <Modal visible={modalVisible} transparent={true} animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            {selectedMed && (
+              <>
+                <View style={[styles.iconCircle, { width: 90, height: 90, borderRadius: 45, alignSelf: 'center', marginBottom: 20 }]}>
+                  <Ionicons name={getIcon(selectedMed.dosage)} size={50} color="#fff" />
+                </View>
+                <Text style={styles.modalTitle}>{selectedMed.name}</Text>
+                
+                <View style={styles.modalDetailRow}>
+                  <Text style={styles.modalLabel}>Dosage:</Text>
+                  <Text style={styles.modalValue}>{selectedMed.dosage}</Text>
+                </View>
+                <View style={styles.modalDetailRow}>
+                  <Text style={styles.modalLabel}>Frequency:</Text>
+                  <Text style={styles.modalValue}>{selectedMed.frequency}</Text>
+                </View>
+                <View style={styles.modalDetailRow}>
+                  <Text style={styles.modalLabel}>Times:</Text>
+                  <Text style={styles.modalValue}>{formatTime(selectedMed.times)}</Text>
+                </View>
+
+                <TouchableOpacity style={styles.modalCloseBtn} onPress={() => setModalVisible(false)}>
+                  <Text style={styles.modalCloseText}>Close Details</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
-  },
-  header: {
-    padding: 20,
-    backgroundColor: '#4A90E2',
-  },
-  greeting: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  date: {
-    fontSize: 16,
-    color: '#fff',
-    marginTop: 5,
-  },
-  nextMedCard: {
-    flexDirection: 'row',
-    backgroundColor: '#fff',
-    margin: 20,
-    padding: 20,
-    borderRadius: 15,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-  },
-  nextMedInfo: {
-    marginLeft: 15,
-    flex: 1,
-  },
-  nextMedLabel: {
-    fontSize: 14,
-    color: '#666',
-  },
-  nextMedName: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
-    marginTop: 5,
-  },
-  nextMedTime: {
-    fontSize: 18,
-    color: '#4A90E2',
-    marginTop: 3,
-  },
-  noMeds: {
-    fontSize: 16,
-    color: '#999',
-    marginTop: 5,
-  },
-  todaySection: {
-    paddingHorizontal: 20,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 15,
-  },
-  medItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    padding: 15,
-    borderRadius: 10,
-    marginBottom: 10,
-  },
-  medItemLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  medItemInfo: {
-    marginLeft: 15,
-  },
-  medItemName: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-  },
-  medItemTime: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 2,
-  },
-  quickActions: {
-    padding: 20,
-    paddingTop: 30,
-  },
+  container: { flex: 1, backgroundColor: '#f5f5f5' },
+  header: { padding: 25, backgroundColor: '#4A90E2' },
+  greeting: { fontSize: 32, fontWeight: 'bold', color: '#fff' },
+  date: { fontSize: 20, color: '#fff', marginTop: 8 },
+  todaySection: { padding: 20 },
+  sectionTitle: { fontSize: 28, fontWeight: 'bold', color: '#333', marginBottom: 20 },
+  noDataText: { fontSize: 22, color: '#999', textAlign: 'center', marginTop: 20 },
+  medItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fff', padding: 20, borderRadius: 15, marginBottom: 15, elevation: 4 },
+  medItemLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
+  iconCircle: { width: 70, height: 70, borderRadius: 35, backgroundColor: '#4A90E2', justifyContent: 'center', alignItems: 'center' },
+  medItemInfo: { marginLeft: 20, flex: 1 },
+  medItemName: { fontSize: 28, fontWeight: 'bold', color: '#333' },
+  medItemSchedule: { fontSize: 20, color: '#4A90E2', marginTop: 5, fontWeight: '700' },
+  quickActions: { paddingHorizontal: 20 },
+  
+  modalOverlay: { flex: 1, justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.6)', padding: 20 },
+  modalContent: { backgroundColor: '#fff', padding: 30, borderRadius: 20 },
+  modalTitle: { fontSize: 36, fontWeight: 'bold', color: '#333', textAlign: 'center', marginBottom: 25 },
+  modalDetailRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 15, borderBottomWidth: 1, borderBottomColor: '#eee', paddingBottom: 10 },
+  modalLabel: { fontSize: 24, color: '#666' },
+  modalValue: { fontSize: 26, fontWeight: 'bold', color: '#4A90E2', flexShrink: 1, textAlign: 'right' },
+  modalCloseBtn: { backgroundColor: '#4A90E2', padding: 20, borderRadius: 15, marginTop: 30, alignItems: 'center' },
+  modalCloseText: { color: '#fff', fontSize: 26, fontWeight: 'bold' }
 });

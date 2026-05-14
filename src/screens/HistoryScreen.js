@@ -1,105 +1,73 @@
-// ============================================
-// src/screens/HistoryScreen.js (Simplified Version)
-// Use this temporarily if react-native-calendars causes issues
-// ============================================
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Calendar } from 'react-native-calendars';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getMedicationHistory } from '../services/api_real';
 
 export default function HistoryScreen() {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    loadHistory();
-  }, [selectedDate]);
+  useEffect(() => { loadHistory(selectedDate); }, [selectedDate]);
 
-  const loadHistory = async () => {
-    // Placeholder data
-    const mockHistory = [
-      { id: 1, name: 'Aspirin', time: '08:00 AM', taken: true, takenAt: '08:05 AM' },
-      { id: 2, name: 'Lisinopril', time: '07:00 AM', taken: true, takenAt: '07:02 AM' },
-      { id: 3, name: 'Metformin', time: '12:00 PM', taken: false },
-      { id: 4, name: 'Vitamin D', time: '06:00 PM', taken: true, takenAt: '06:15 PM' },
-    ];
-    setHistory(mockHistory);
-  };
-
-  const getComplianceRate = () => {
-    const taken = history.filter(h => h.taken).length;
-    const total = history.length;
-    return total > 0 ? Math.round((taken / total) * 100) : 0;
+  const loadHistory = async (date) => {
+    setLoading(true);
+    try {
+      const userIdStr = await AsyncStorage.getItem('userId');
+      if (!userIdStr) return;
+      const data = await getMedicationHistory(parseInt(userIdStr, 10), date);
+      setHistory(Array.isArray(data) ? data : []);
+    } catch (error) { setHistory([]); } 
+    finally { setLoading(false); }
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      <ScrollView contentContainerStyle={{ paddingBottom: 20 }}>
         <View style={styles.header}>
           <Text style={styles.title}>Medication History</Text>
         </View>
 
-        {/* Date selector - simplified without calendar */}
-        <View style={styles.dateSelector}>
-          <TouchableOpacity style={styles.dateButton}>
-            <Ionicons name="chevron-back" size={24} color="#4A90E2" />
-          </TouchableOpacity>
-          <Text style={styles.currentDate}>
-            {new Date(selectedDate).toLocaleDateString('en-US', { 
-              month: 'long', 
-              day: 'numeric',
-              year: 'numeric' 
-            })}
-          </Text>
-          <TouchableOpacity style={styles.dateButton}>
-            <Ionicons name="chevron-forward" size={24} color="#4A90E2" />
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.statsCard}>
-          <Text style={styles.statsTitle}>Daily Compliance</Text>
-          <View style={styles.statsRow}>
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{getComplianceRate()}%</Text>
-              <Text style={styles.statLabel}>Taken</Text>
-            </View>
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{history.filter(h => h.taken).length}/{history.length}</Text>
-              <Text style={styles.statLabel}>Medications</Text>
-            </View>
-          </View>
-        </View>
+        <Calendar
+          onDayPress={(day) => setSelectedDate(day.dateString)}
+          markedDates={{ [selectedDate]: { selected: true, selectedColor: '#4A90E2' } }}
+          theme={{ textDayFontSize: 20, textMonthFontSize: 24, textDayHeaderFontSize: 16 }}
+        />
 
         <View style={styles.historyList}>
-          <Text style={styles.sectionTitle}>Today's Medications</Text>
+          <Text style={styles.sectionTitle}>Logs for {selectedDate}</Text>
           
-          {history.map((item) => (
-            <View key={item.id} style={styles.historyItem}>
-              <View style={styles.historyItemLeft}>
+          {loading ? (
+             <ActivityIndicator size="large" color="#4A90E2" />
+          ) : history.length === 0 ? (
+             <Text style={{color: '#999', textAlign: 'center', fontSize: 22}}>No data for this date.</Text>
+          ) : (
+            history.map((item, index) => (
+              <View key={index} style={styles.historyItem}>
+                {/* Dynamically checks if status is taken or missed */}
                 <Ionicons 
-                  name={item.taken ? "checkmark-circle" : "close-circle"} 
-                  size={28} 
-                  color={item.taken ? "#4CAF50" : "#ff4444"} 
+                  name={item.status === 'taken' ? "checkmark-circle" : "close-circle"} 
+                  size={45} 
+                  color={item.status === 'taken' ? "#4CAF50" : "#ff4444"} 
                 />
-                <View style={styles.historyItemInfo}>
+                <View style={{marginLeft: 15, flex: 1}}>
                   <Text style={styles.medicationName}>{item.name}</Text>
-                  <Text style={styles.medicationTime}>
-                    Scheduled: {item.time}
+                  <Text style={{color: '#666', fontSize: 20}}>Dose: {item.dosage}</Text>
+                  <Text style={{
+                    color: item.status === 'taken' ? "#4CAF50" : "#ff4444", 
+                    fontSize: 20, 
+                    fontWeight: 'bold',
+                    marginTop: 5
+                  }}>
+                    {item.status === 'taken' ? 'TAKEN' : 'MISSED / SKIPPED'}
                   </Text>
-                  {item.taken && (
-                    <Text style={styles.takenTime}>
-                      Taken at: {item.takenAt}
-                    </Text>
-                  )}
                 </View>
               </View>
-              <View style={styles.statusBadge}>
-                <Text style={[styles.statusText, item.taken ? styles.takenText : styles.missedText]}>
-                  {item.taken ? 'Taken' : 'Missed'}
-                </Text>
-              </View>
-            </View>
-          ))}
+            ))
+          )}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -107,121 +75,11 @@ export default function HistoryScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
-  },
-  header: {
-    padding: 20,
-    backgroundColor: '#4A90E2',
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  dateSelector: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    margin: 15,
-    padding: 15,
-    borderRadius: 10,
-  },
-  dateButton: {
-    padding: 5,
-  },
-  currentDate: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-  },
-  statsCard: {
-    backgroundColor: '#fff',
-    margin: 15,
-    padding: 20,
-    borderRadius: 12,
-    elevation: 2,
-  },
-  statsTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 15,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-  },
-  statItem: {
-    alignItems: 'center',
-  },
-  statValue: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#4A90E2',
-  },
-  statLabel: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 5,
-  },
-  historyList: {
-    padding: 15,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 15,
-  },
-  historyItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    padding: 15,
-    borderRadius: 10,
-    marginBottom: 10,
-  },
-  historyItemLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  historyItemInfo: {
-    marginLeft: 12,
-    flex: 1,
-  },
-  medicationName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-  },
-  medicationTime: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 2,
-  },
-  takenTime: {
-    fontSize: 14,
-    color: '#4CAF50',
-    marginTop: 2,
-  },
-  statusBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  takenText: {
-    color: '#4CAF50',
-  },
-  missedText: {
-    color: '#ff4444',
-  },
+  container: { flex: 1, backgroundColor: '#f5f5f5' },
+  header: { padding: 25, backgroundColor: '#4A90E2' },
+  title: { fontSize: 32, fontWeight: 'bold', color: '#fff' },
+  historyList: { padding: 25 },
+  sectionTitle: { fontSize: 26, fontWeight: 'bold', marginBottom: 20, color: '#333' },
+  historyItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', padding: 20, borderRadius: 15, marginBottom: 15, elevation: 4 },
+  medicationName: { fontSize: 26, fontWeight: 'bold' }
 });
